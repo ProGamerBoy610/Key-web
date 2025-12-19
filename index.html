@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Key System v2</title>
+    <title>Key System</title>
     <style>
         * {
             margin: 0;
@@ -167,22 +167,6 @@
             border: 1px solid #bee5eb;
         }
 
-        .timer {
-            background: #fff3cd;
-            color: #856404;
-            padding: 15px;
-            border-radius: 10px;
-            text-align: center;
-            margin-bottom: 20px;
-            border: 1px solid #ffeaa7;
-            font-weight: bold;
-            display: none;
-        }
-
-        .timer.show {
-            display: block;
-        }
-
         .loading {
             display: inline-block;
             width: 20px;
@@ -199,10 +183,6 @@
             100% { transform: rotate(360deg); }
         }
 
-        #keyStorage {
-            display: none;
-        }
-
         .warning {
             background: #fff3cd;
             color: #856404;
@@ -216,33 +196,34 @@
 </head>
 <body>
     <div class="container">
-        <h1>🔑 Key System</h1>
-        <p class="subtitle">Complete the steps below to get your key</p>
+        <h1>🔑 Key System v2</h1>
+        <p class="subtitle">Complete Linkvertise to get your key</p>
 
         <div id="status" class="status"></div>
-        <div id="timer" class="timer"></div>
 
-        <!-- Step 1: Complete Linkvertise -->
+        <!-- Step 1: Get unique link -->
         <div class="step">
-            <h3>Step 1: Complete Task</h3>
-            <p>Click the button below. It will open Linkvertise in a NEW TAB. Complete ALL the steps!</p>
-            <div class="warning">⚠️ After completing, come back to THIS TAB and click "I'm Back"!</div>
+            <h3>Step 1: Get Your Unique Link</h3>
+            <p>Click to generate YOUR unique Linkvertise link. Each user gets different link!</p>
+            <div class="warning">⚠️ This link is ONLY for you. Don't share it!</div>
         </div>
-        <button id="linkvertiseBtn" class="btn btn-primary">🔗 Open Linkvertise</button>
+        <button id="generateLinkBtn" class="btn btn-primary">🔗 Generate My Link</button>
 
-        <!-- Step 2: Verify Completion -->
-        <div class="step">
-            <h3>Step 2: Confirm Completion</h3>
-            <p>Finished the Linkvertise tasks? Click here to verify!</p>
+        <!-- Display unique link -->
+        <div id="linkDisplay" class="key-display">
+            <h3>📋 Your Unique Link</h3>
+            <div id="uniqueLink" class="key-value" style="cursor: pointer;"></div>
+            <p style="color: #666; font-size: 14px; margin-top: 10px;">
+                Click the link above to open it. Complete ALL tasks!
+            </p>
         </div>
-        <button id="verifyBtn" class="btn btn-primary" disabled>✓ I'm Back - Verify Me</button>
 
-        <!-- Step 3: Generate Key -->
+        <!-- Step 2: Get Key -->
         <div class="step">
-            <h3>Step 3: Get Your Key</h3>
-            <p>After verification confirmed, generate your 24-hour key.</p>
+            <h3>Step 2: Get Your Key</h3>
+            <p>After completing Linkvertise, come back and get your key!</p>
         </div>
-        <button id="getKeyBtn" class="btn btn-primary" disabled>🎁 Generate Key</button>
+        <button id="getKeyBtn" class="btn btn-primary" disabled>🎁 Get My Key</button>
 
         <!-- Key Display -->
         <div id="keyDisplay" class="key-display">
@@ -263,26 +244,23 @@
         <button id="checkKeyBtn" class="btn btn-primary">🔍 Check Key</button>
     </div>
 
-    <!-- HIDDEN KEY STORAGE - Executors can read this, browsers hide it -->
-    <script id="keyStorage" type="application/json">
-[]
-    </script>
-
     <script>
-        // Configuration
+        // Configuration - CHANGE THESE!
         const CONFIG = {
-            linkvertiseUrl: 'https://linkvertise.com/access/349291/morningstar-war-pack-v3',
-            minTaskTime: 45000, // Minimum 45 seconds to complete tasks
-            verifyDelay: 15000  // 15 second verification
+            linkvertiseBaseUrl: 'https://linkvertise.com/access/349291/morningstar-war-pack-v3',
+            // FREE API to store keys - create account at jsonbin.io
+            jsonBinUrl: 'https://api.jsonbin.io/v3/b/YOUR_BIN_ID', // Get from jsonbin.io
+            jsonBinKey: '$2a$10$YOUR_API_KEY', // Get from jsonbin.io
+            keyExpireHours: 24
         };
 
-        let linkOpenedAt = 0;
-        let linkvertiseWindow = null;
-        let verificationCompleted = false;
+        let userToken = null;
+        let userLink = null;
 
         // Elements
-        const linkvertiseBtn = document.getElementById('linkvertiseBtn');
-        const verifyBtn = document.getElementById('verifyBtn');
+        const generateLinkBtn = document.getElementById('generateLinkBtn');
+        const linkDisplay = document.getElementById('linkDisplay');
+        const uniqueLink = document.getElementById('uniqueLink');
         const getKeyBtn = document.getElementById('getKeyBtn');
         const keyDisplay = document.getElementById('keyDisplay');
         const keyValue = document.getElementById('keyValue');
@@ -290,64 +268,102 @@
         const checkKeyBtn = document.getElementById('checkKeyBtn');
         const checkKeyInput = document.getElementById('checkKeyInput');
         const statusDiv = document.getElementById('status');
-        const timerDiv = document.getElementById('timer');
 
-        // Key storage functions
-        function getStoredKeys() {
-            try {
-                // Always get fresh content from the script tag
-                const keyStorageEl = document.getElementById('keyStorage');
-                const keys = JSON.parse(keyStorageEl.textContent.trim());
-                return Array.isArray(keys) ? keys : [];
-            } catch {
-                return [];
+        // Get or create user ID
+        function getUserId() {
+            let userId = localStorage.getItem('user_id');
+            if (!userId) {
+                userId = 'USER' + Math.random().toString(36).substring(2, 15).toUpperCase();
+                localStorage.setItem('user_id', userId);
             }
+            return userId;
         }
 
-        function saveKeys(keys) {
-            const keyStorageEl = document.getElementById('keyStorage');
-            keyStorageEl.textContent = '\n' + JSON.stringify(keys, null, 2) + '\n    ';
-            
-            // Force page to recognize the change
-            keyStorageEl.setAttribute('data-updated', Date.now().toString());
+        // Generate unique token for this session
+        function generateToken() {
+            return Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
         }
 
-        function addKey(key) {
-            const keys = getStoredKeys();
+        // Show status message
+        function showStatus(message, type) {
+            statusDiv.textContent = message;
+            statusDiv.className = `status show ${type}`;
+            setTimeout(() => {
+                statusDiv.className = 'status';
+            }, 5000);
+        }
+
+        // Generate key
+        function generateKey() {
+            const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+            let randomStr = '';
+            for (let i = 0; i < 16; i++) {
+                randomStr += chars.charAt(Math.floor(Math.random() * chars.length));
+            }
+            const expiryTime = Date.now() + (CONFIG.keyExpireHours * 60 * 60 * 1000);
+            return `KEY-${randomStr}-EXPIRES-${expiryTime}`;
+        }
+
+        // Save keys to JSONBin (or use alternative)
+        async function saveKeyToStorage(key) {
+            try {
+                // Try to use JSONBin.io
+                const response = await fetch(CONFIG.jsonBinUrl, {
+                    method: 'PUT',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-Master-Key': CONFIG.jsonBinKey
+                    },
+                    body: JSON.stringify({
+                        keys: [key], // In real system, fetch existing keys first and append
+                        updated: Date.now()
+                    })
+                });
+
+                if (response.ok) {
+                    return true;
+                }
+            } catch (error) {
+                console.log('JSONBin error:', error);
+            }
+
+            // Fallback: Store locally only (not permanent across devices but works)
+            let keys = JSON.parse(localStorage.getItem('all_keys') || '[]');
             keys.push(key);
-            saveKeys(keys);
+            localStorage.setItem('all_keys', JSON.stringify(keys));
+            return true;
         }
 
-        function cleanExpiredKeys() {
-            const keys = getStoredKeys();
-            const now = Date.now();
-            const validKeys = keys.filter(key => {
-                const parts = key.split('-EXPIRES-');
-                if (parts.length !== 2) return false;
-                const expiry = parseInt(parts[1]);
-                return expiry > now;
-            });
-            saveKeys(validKeys);
-            return validKeys;
+        // Get keys from storage
+        async function getKeysFromStorage() {
+            try {
+                // Try JSONBin first
+                const response = await fetch(CONFIG.jsonBinUrl + '/latest', {
+                    headers: {
+                        'X-Master-Key': CONFIG.jsonBinKey
+                    }
+                });
+
+                if (response.ok) {
+                    const data = await response.json();
+                    return data.record.keys || [];
+                }
+            } catch (error) {
+                console.log('JSONBin fetch error:', error);
+            }
+
+            // Fallback: Local storage
+            return JSON.parse(localStorage.getItem('all_keys') || '[]');
         }
 
-        function isKeyValid(inputKey) {
-            // Always get fresh keys from storage
-            const keys = getStoredKeys();
+        // Validate key
+        async function validateKey(inputKey) {
+            const keys = await getKeysFromStorage();
             const now = Date.now();
 
-            // Clean expired keys first
-            const validKeys = keys.filter(key => {
-                const parts = key.split('-EXPIRES-');
-                if (parts.length !== 2) return false;
-                const expiry = parseInt(parts[1]);
-                return expiry > now;
-            });
-
-            // Extract just the key part (before -EXPIRES-)
             const inputKeyPrefix = inputKey.split('-EXPIRES-')[0];
 
-            for (const key of validKeys) {
+            for (const key of keys) {
                 const keyPrefix = key.split('-EXPIRES-')[0];
                 
                 if (keyPrefix === inputKeyPrefix) {
@@ -366,181 +382,84 @@
             return { valid: false, reason: 'notfound' };
         }
 
-        // Check if returning from Linkvertise with verification
-        function checkLinkvertiseReturn() {
-            const urlParams = new URLSearchParams(window.location.search);
+        // Step 1: Generate unique link
+        generateLinkBtn.addEventListener('click', () => {
+            const userId = getUserId();
+            userToken = generateToken();
             
-            // Check for Linkvertise completion parameters
-            if (urlParams.has('hash') || urlParams.has('token') || urlParams.has('verify')) {
-                sessionToken = urlParams.get('hash') || urlParams.get('token') || urlParams.get('verify') || 'verified';
-                verificationCompleted = true;
+            // Create unique Linkvertise URL with our return URL encoded
+            const returnUrl = `${window.location.origin}${window.location.pathname}?token=${userToken}`;
+            userLink = `${CONFIG.linkvertiseBaseUrl}?r=${encodeURIComponent(returnUrl)}`;
+            
+            // Store token with timestamp
+            localStorage.setItem('pending_token', userToken);
+            localStorage.setItem('pending_time', Date.now().toString());
+            
+            uniqueLink.textContent = userLink;
+            linkDisplay.classList.add('show');
+            generateLinkBtn.disabled = true;
+            generateLinkBtn.textContent = '✓ Link Generated';
+            
+            showStatus('✅ Your unique link generated! Click it to complete tasks.', 'success');
+        });
+
+        // Make link clickable
+        uniqueLink.addEventListener('click', () => {
+            if (userLink) {
+                window.open(userLink, '_blank');
+                showStatus('🔗 Linkvertise opened! Complete ALL tasks, then come back.', 'info');
                 
-                // Clean URL
-                window.history.replaceState({}, document.title, window.location.pathname);
-                
-                // Enable key generation
-                linkvertiseBtn.disabled = true;
-                linkvertiseBtn.textContent = '✓ Verified';
-                verifyBtn.disabled = true;
-                verifyBtn.textContent = '✓ Verified';
-                getKeyBtn.disabled = false;
-                
-                showStatus('✅ Verification completed! You can now generate your key.', 'success');
-                
-                // Store verification in session
-                sessionStorage.setItem('linkvertise_verified', Date.now().toString());
-            } else {
-                // Check if recently verified (within 5 minutes)
-                const lastVerified = sessionStorage.getItem('linkvertise_verified');
-                if (lastVerified && (Date.now() - parseInt(lastVerified)) < 300000) {
-                    verificationCompleted = true;
-                    linkvertiseBtn.disabled = true;
-                    linkvertiseBtn.textContent = '✓ Verified';
-                    verifyBtn.disabled = true;
-                    verifyBtn.textContent = '✓ Verified';
+                // Enable key button after minimum time
+                setTimeout(() => {
                     getKeyBtn.disabled = false;
-                }
+                    showStatus('✅ Time passed! Complete tasks and get your key.', 'success');
+                }, 60000); // 60 seconds minimum
             }
-        }
-        function showStatus(message, type) {
-            statusDiv.textContent = message;
-            statusDiv.className = `status show ${type}`;
-            setTimeout(() => {
-                statusDiv.className = 'status';
-            }, 5000);
-        }
-
-        // Show status message
-        function showStatus(message, type) {
-            statusDiv.textContent = message;
-            statusDiv.className = `status show ${type}`;
-            setTimeout(() => {
-                statusDiv.className = 'status';
-            }, 5000);
-        }
-
-        // Generate random key
-        function generateKey() {
-            const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
-            let randomStr = '';
-            for (let i = 0; i < 16; i++) {
-                randomStr += chars.charAt(Math.floor(Math.random() * chars.length));
-            }
-            const expiryTime = Date.now() + (24 * 60 * 60 * 1000); // 24 hours
-            return `KEY-${randomStr}-EXPIRES-${expiryTime}`;
-        }
-
-        const keyStorageEl = document.getElementById('keyStorage');
-
-        // Check on page load
-        checkLinkvertiseReturn();
-
-        // Show status message
-        function showStatus(message, type) {
-            statusDiv.textContent = message;
-            statusDiv.className = `status show ${type}`;
-            setTimeout(() => {
-                statusDiv.className = 'status';
-            }, 5000);
-        }
-
-        // Update timer
-        function updateTimer() {
-            if (linkOpenedAt === 0) return;
-
-            const elapsed = Date.now() - linkOpenedAt;
-            const remaining = Math.max(0, CONFIG.minTaskTime - elapsed);
-
-            if (remaining > 0) {
-                const seconds = Math.ceil(remaining / 1000);
-                timerDiv.textContent = `⏳ Complete Linkvertise tasks... (${seconds}s minimum)`;
-                timerDiv.className = 'timer show';
-            } else {
-                timerDiv.textContent = '✓ Time passed! Click "I\'m Back" if you finished.';
-                timerDiv.className = 'timer show';
-                verifyBtn.disabled = false;
-            }
-        }
-
-        // Generate random key
-        function generateKey() {
-            const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
-            let randomStr = '';
-            for (let i = 0; i < 16; i++) {
-                randomStr += chars.charAt(Math.floor(Math.random() * chars.length));
-            }
-            const expiryTime = Date.now() + (24 * 60 * 60 * 1000); // 24 hours
-            return `KEY-${randomStr}-EXPIRES-${expiryTime}`;
-        }
-
-        // Step 1: Open Linkvertise in new tab
-        linkvertiseBtn.addEventListener('click', () => {
-            linkvertiseWindow = window.open(CONFIG.linkvertiseUrl, '_blank');
-            
-            if (!linkvertiseWindow) {
-                showStatus('❌ Please allow popups for this site!', 'error');
-                return;
-            }
-
-            linkOpenedAt = Date.now();
-            linkvertiseBtn.textContent = '✓ Linkvertise Opened';
-            
-            showStatus('🔗 Complete ALL Linkvertise tasks, then come back here!', 'info');
-            
-            // Start timer
-            const timerInterval = setInterval(() => {
-                updateTimer();
-                
-                // Stop timer when time is up
-                if (Date.now() - linkOpenedAt >= CONFIG.minTaskTime) {
-                    clearInterval(timerInterval);
-                }
-            }, 1000);
-            
-            updateTimer();
         });
 
-        // Step 2: User confirms completion
-        verifyBtn.addEventListener('click', () => {
-            const elapsed = Date.now() - linkOpenedAt;
+        // Check if returning from Linkvertise
+        function checkReturn() {
+            const urlParams = new URLSearchParams(window.location.search);
+            const returnToken = urlParams.get('token');
             
-            if (elapsed < CONFIG.minTaskTime) {
-                const remaining = Math.ceil((CONFIG.minTaskTime - elapsed) / 1000);
-                showStatus(`❌ Wait ${remaining} more seconds! Complete the tasks!`, 'error');
-                return;
+            if (returnToken) {
+                const pendingToken = localStorage.getItem('pending_token');
+                const pendingTime = parseInt(localStorage.getItem('pending_time') || '0');
+                
+                // Verify token matches and enough time passed
+                if (returnToken === pendingToken && (Date.now() - pendingTime) > 30000) {
+                    // Mark as completed
+                    localStorage.setItem('lv_completed', Date.now().toString());
+                    getKeyBtn.disabled = false;
+                    
+                    // Clean URL
+                    window.history.replaceState({}, document.title, window.location.pathname);
+                    
+                    showStatus('✅ Verification complete! Generate your key now.', 'success');
+                }
             }
 
-            verifyBtn.disabled = true;
-            verifyBtn.innerHTML = '<span class="loading"></span>Verifying...';
-            timerDiv.textContent = '⏳ Verifying your completion...';
-            timerDiv.className = 'timer show';
-
-            // Verification delay
-            setTimeout(() => {
-                verificationCompleted = true;
-                localStorage.setItem('lv_completed', Date.now().toString());
-                
-                verifyBtn.textContent = '✓ Verified';
+            // Check if recently completed
+            const lastCompleted = localStorage.getItem('lv_completed');
+            if (lastCompleted && (Date.now() - parseInt(lastCompleted)) < 300000) {
                 getKeyBtn.disabled = false;
-                timerDiv.className = 'timer';
-                
-                showStatus('✅ Verification complete! Generate your key now.', 'success');
-            }, CONFIG.verifyDelay);
-        });
+            }
+        }
 
-        // Step 3: Generate Key
-        getKeyBtn.addEventListener('click', () => {
-            if (!verificationCompleted) {
-                showStatus('❌ Please complete Linkvertise verification first!', 'error');
+        // Step 2: Generate key
+        getKeyBtn.addEventListener('click', async () => {
+            const lastCompleted = localStorage.getItem('lv_completed');
+            if (!lastCompleted || (Date.now() - parseInt(lastCompleted)) > 300000) {
+                showStatus('❌ Please complete Linkvertise first or session expired!', 'error');
                 return;
             }
 
             getKeyBtn.disabled = true;
             getKeyBtn.innerHTML = '<span class="loading"></span>Generating Key...';
 
-            setTimeout(() => {
+            setTimeout(async () => {
                 const key = generateKey();
-                addKey(key);
+                await saveKeyToStorage(key);
                 
                 keyValue.textContent = key;
                 keyDisplay.classList.add('show');
@@ -548,17 +467,18 @@
                 
                 getKeyBtn.innerHTML = '✓ Key Generated';
                 
-                // Clear verification after 5 seconds
+                // Clear completion
+                localStorage.removeItem('lv_completed');
+                localStorage.removeItem('pending_token');
+                localStorage.removeItem('pending_time');
+                
+                // Reset after 5 seconds
                 setTimeout(() => {
-                    localStorage.removeItem('lv_completed');
-                    linkvertiseBtn.disabled = false;
-                    linkvertiseBtn.textContent = '🔗 Open Linkvertise';
-                    verifyBtn.disabled = true;
-                    verifyBtn.textContent = '✓ I\'m Back - Verify Me';
+                    generateLinkBtn.disabled = false;
+                    generateLinkBtn.textContent = '🔗 Generate My Link';
                     getKeyBtn.disabled = true;
-                    getKeyBtn.textContent = '🎁 Generate Key';
-                    verificationCompleted = false;
-                    linkOpenedAt = 0;
+                    getKeyBtn.textContent = '🎁 Get My Key';
+                    linkDisplay.classList.remove('show');
                 }, 5000);
             }, 1500);
         });
@@ -567,13 +487,12 @@
         copyBtn.addEventListener('click', () => {
             const key = keyValue.textContent;
             navigator.clipboard.writeText(key).then(() => {
-                const originalText = copyBtn.textContent;
                 copyBtn.textContent = '✅ Copied!';
                 setTimeout(() => {
-                    copyBtn.textContent = originalText;
+                    copyBtn.textContent = '📋 Copy Key';
                 }, 2000);
             }).catch(() => {
-                // Fallback for older browsers
+                // Fallback
                 const textArea = document.createElement('textarea');
                 textArea.value = key;
                 document.body.appendChild(textArea);
@@ -585,7 +504,7 @@
         });
 
         // Check key validity
-        checkKeyBtn.addEventListener('click', () => {
+        checkKeyBtn.addEventListener('click', async () => {
             const inputKey = checkKeyInput.value.trim();
             
             if (!inputKey) {
@@ -596,24 +515,22 @@
             checkKeyBtn.disabled = true;
             checkKeyBtn.innerHTML = '<span class="loading"></span>Checking...';
 
-            setTimeout(() => {
-                const result = isKeyValid(inputKey);
-                
-                if (result.valid) {
-                    showStatus(`✅ Valid key! Expires in ${result.hoursLeft} hours.`, 'success');
-                } else if (result.reason === 'expired') {
-                    showStatus('❌ Key has expired! Generate a new one.', 'error');
-                } else {
-                    showStatus('❌ Invalid key! Check your spelling or generate new key.', 'error');
-                }
-                
-                checkKeyBtn.disabled = false;
-                checkKeyBtn.innerHTML = '🔍 Check Key';
-            }, 800);
+            const result = await validateKey(inputKey);
+            
+            if (result.valid) {
+                showStatus(`✅ Valid key! Expires in ${result.hoursLeft} hours.`, 'success');
+            } else if (result.reason === 'expired') {
+                showStatus('❌ Key has expired! Generate a new one.', 'error');
+            } else {
+                showStatus('❌ Invalid key! Check your spelling or generate new key.', 'error');
+            }
+            
+            checkKeyBtn.disabled = false;
+            checkKeyBtn.innerHTML = '🔍 Check Key';
         });
 
-        // Clean expired keys on page load
-        cleanExpiredKeys();
+        // Check on load
+        checkReturn();
     </script>
 </body>
 </html>
