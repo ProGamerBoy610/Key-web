@@ -81,7 +81,7 @@
             color: white;
         }
 
-        .btn-primary:hover {
+        .btn-primary:hover:not(:disabled) {
             transform: translateY(-2px);
             box-shadow: 0 10px 20px rgba(102, 126, 234, 0.3);
         }
@@ -167,6 +167,22 @@
             border: 1px solid #bee5eb;
         }
 
+        .timer {
+            background: #fff3cd;
+            color: #856404;
+            padding: 15px;
+            border-radius: 10px;
+            text-align: center;
+            margin-bottom: 20px;
+            border: 1px solid #ffeaa7;
+            font-weight: bold;
+            display: none;
+        }
+
+        .timer.show {
+            display: block;
+        }
+
         .loading {
             display: inline-block;
             width: 20px;
@@ -186,6 +202,16 @@
         #keyStorage {
             display: none;
         }
+
+        .warning {
+            background: #fff3cd;
+            color: #856404;
+            padding: 10px;
+            border-radius: 5px;
+            font-size: 12px;
+            margin-top: 10px;
+            border-left: 3px solid #ffc107;
+        }
     </style>
 </head>
 <body>
@@ -194,20 +220,29 @@
         <p class="subtitle">Complete the steps below to get your key</p>
 
         <div id="status" class="status"></div>
+        <div id="timer" class="timer"></div>
 
         <!-- Step 1: Complete Linkvertise -->
         <div class="step">
             <h3>Step 1: Complete Task</h3>
-            <p>Click the button below and complete the verification steps.</p>
+            <p>Click the button below and complete ALL the verification steps. Don't skip any!</p>
+            <div class="warning">⚠️ Must complete the full Linkvertise process, not just wait!</div>
         </div>
-        <button id="linkvertiseBtn" class="btn btn-primary">Complete Verification</button>
+        <button id="linkvertiseBtn" class="btn btn-primary">🔗 Start Verification</button>
 
-        <!-- Step 2: Generate Key -->
+        <!-- Step 2: Verify Completion -->
         <div class="step">
-            <h3>Step 2: Get Your Key</h3>
-            <p>After completing verification, generate your 24-hour key.</p>
+            <h3>Step 2: Verify Completion</h3>
+            <p>After completing ALL tasks, click to confirm you finished.</p>
         </div>
-        <button id="getKeyBtn" class="btn btn-primary" disabled>Generate Key</button>
+        <button id="verifyBtn" class="btn btn-primary" disabled>✓ I Completed All Tasks</button>
+
+        <!-- Step 3: Generate Key -->
+        <div class="step">
+            <h3>Step 3: Get Your Key</h3>
+            <p>After verification confirmed, generate your 24-hour key.</p>
+        </div>
+        <button id="getKeyBtn" class="btn btn-primary" disabled>🎁 Generate Key</button>
 
         <!-- Key Display -->
         <div id="keyDisplay" class="key-display">
@@ -216,7 +251,7 @@
             <p style="color: #666; font-size: 14px; margin-top: 10px;">
                 This key expires in 24 hours. Copy it now!
             </p>
-            <button id="copyBtn" class="btn btn-success">Copy Key</button>
+            <button id="copyBtn" class="btn btn-success">📋 Copy Key</button>
         </div>
 
         <!-- Check Key Section -->
@@ -224,8 +259,8 @@
             <h3>Check Key Validity</h3>
             <p>Already have a key? Check if it's still valid.</p>
         </div>
-        <input type="text" id="checkKeyInput" placeholder="Enter your key here">
-        <button id="checkKeyBtn" class="btn btn-primary">Check Key</button>
+        <input type="text" id="checkKeyInput" placeholder="Paste your key here...">
+        <button id="checkKeyBtn" class="btn btn-primary">🔍 Check Key</button>
     </div>
 
     <!-- HIDDEN KEY STORAGE - Executors can read this, browsers hide it -->
@@ -236,14 +271,19 @@
     <script>
         // Configuration
         const CONFIG = {
-            linkvertiseUrl: 'https://linkvertise.com/access/349291/morningstar-war-pack-v3', // CHANGE THIS to your link
-            verificationTime: 30000 // 30 seconds wait time
+            linkvertiseUrl: 'https://linkvertise.com/access/349291/morningstar-war-pack-v3',
+            minWaitTime: 60000, // Minimum 60 seconds after opening link
+            verifyWaitTime: 30000 // Extra 30 seconds to confirm completion
         };
 
-        let verificationCompleted = false;
+        let linkOpenedAt = 0;
+        let verificationStartedAt = 0;
+        let linkvertiseWindow = null;
+        let timerInterval = null;
 
         // Elements
         const linkvertiseBtn = document.getElementById('linkvertiseBtn');
+        const verifyBtn = document.getElementById('verifyBtn');
         const getKeyBtn = document.getElementById('getKeyBtn');
         const keyDisplay = document.getElementById('keyDisplay');
         const keyValue = document.getElementById('keyValue');
@@ -251,7 +291,7 @@
         const checkKeyBtn = document.getElementById('checkKeyBtn');
         const checkKeyInput = document.getElementById('checkKeyInput');
         const statusDiv = document.getElementById('status');
-        const keyStorageEl = document.getElementById('keyStorage');
+        const timerDiv = document.getElementById('timer');
 
         // Key storage functions
         function getStoredKeys() {
@@ -290,8 +330,13 @@
             const keys = cleanExpiredKeys();
             const now = Date.now();
 
+            // Extract just the key part (before -EXPIRES-)
+            const inputKeyPrefix = inputKey.split('-EXPIRES-')[0];
+
             for (const key of keys) {
-                if (key.startsWith(inputKey.split('-EXPIRES-')[0])) {
+                const keyPrefix = key.split('-EXPIRES-')[0];
+                
+                if (keyPrefix === inputKeyPrefix) {
                     const parts = key.split('-EXPIRES-');
                     if (parts.length === 2) {
                         const expiry = parseInt(parts[1]);
@@ -316,34 +361,87 @@
             }, 5000);
         }
 
+        // Update timer display
+        function updateTimer() {
+            if (linkOpenedAt === 0) return;
+
+            const elapsed = Date.now() - linkOpenedAt;
+            const remaining = Math.max(0, CONFIG.minWaitTime - elapsed);
+
+            if (remaining > 0) {
+                const seconds = Math.ceil(remaining / 1000);
+                timerDiv.textContent = `⏳ Complete the tasks... (${seconds}s minimum wait)`;
+                timerDiv.className = 'timer show';
+            } else {
+                timerDiv.textContent = '✓ Minimum time passed! Complete tasks then click verify.';
+                timerDiv.className = 'timer show';
+                verifyBtn.disabled = false;
+            }
+        }
+
         // Generate random key
         function generateKey() {
-            const randomStr = Math.random().toString(36).substring(2, 15).toUpperCase() + 
-                            Math.random().toString(36).substring(2, 15).toUpperCase();
+            const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+            let randomStr = '';
+            for (let i = 0; i < 16; i++) {
+                randomStr += chars.charAt(Math.floor(Math.random() * chars.length));
+            }
             const expiryTime = Date.now() + (24 * 60 * 60 * 1000); // 24 hours
             return `KEY-${randomStr}-EXPIRES-${expiryTime}`;
         }
 
-        // Step 1: Linkvertise completion
-        linkvertiseBtn.addEventListener('click', () => {
-            window.open(CONFIG.linkvertiseUrl, '_blank');
-            showStatus('Complete all steps in the new window...', 'info');
-            
-            // Enable key button after wait time
-            setTimeout(() => {
-                verificationCompleted = true;
-                getKeyBtn.disabled = false;
-                showStatus('✅ Verification completed! You can now generate your key.', 'success');
-            }, CONFIG.verificationTime);
-        });
+        const keyStorageEl = document.getElementById('keyStorage');
 
-        // Step 2: Generate Key
-        getKeyBtn.addEventListener('click', () => {
-            if (!verificationCompleted) {
-                showStatus('❌ Please complete the verification first!', 'error');
+        // Step 1: Open Linkvertise
+        linkvertiseBtn.addEventListener('click', () => {
+            // Open Linkvertise in new tab
+            linkvertiseWindow = window.open(CONFIG.linkvertiseUrl, '_blank');
+            
+            if (!linkvertiseWindow) {
+                showStatus('❌ Please allow popups for this site!', 'error');
                 return;
             }
 
+            linkOpenedAt = Date.now();
+            linkvertiseBtn.disabled = true;
+            linkvertiseBtn.textContent = '✓ Link Opened';
+            
+            showStatus('🔗 Linkvertise opened! Complete ALL the steps.', 'info');
+            
+            // Start timer
+            timerInterval = setInterval(updateTimer, 1000);
+            updateTimer();
+        });
+
+        // Step 2: Verify completion
+        verifyBtn.addEventListener('click', () => {
+            const elapsed = Date.now() - linkOpenedAt;
+            
+            if (elapsed < CONFIG.minWaitTime) {
+                const remaining = Math.ceil((CONFIG.minWaitTime - elapsed) / 1000);
+                showStatus(`❌ Please wait ${remaining} more seconds after opening link!`, 'error');
+                return;
+            }
+
+            verifyBtn.disabled = true;
+            verifyBtn.innerHTML = '<span class="loading"></span>Verifying...';
+            verificationStartedAt = Date.now();
+
+            // Additional verification wait
+            timerDiv.textContent = '⏳ Verifying completion...';
+            
+            setTimeout(() => {
+                clearInterval(timerInterval);
+                timerDiv.className = 'timer';
+                
+                verifyBtn.textContent = '✓ Verified';
+                getKeyBtn.disabled = false;
+                showStatus('✅ Verification confirmed! You can now generate your key.', 'success');
+            }, CONFIG.verifyWaitTime);
+        });
+
+        // Step 3: Generate Key
+        getKeyBtn.addEventListener('click', () => {
             getKeyBtn.disabled = true;
             getKeyBtn.innerHTML = '<span class="loading"></span>Generating Key...';
 
@@ -355,20 +453,40 @@
                 keyDisplay.classList.add('show');
                 showStatus('✅ Key generated successfully!', 'success');
                 
-                getKeyBtn.innerHTML = 'Generate Key';
-                getKeyBtn.disabled = false;
-                verificationCompleted = false; // Reset for next time
-            }, 1000);
+                getKeyBtn.innerHTML = '✓ Key Generated';
+                
+                // Reset for next use
+                setTimeout(() => {
+                    linkvertiseBtn.disabled = false;
+                    linkvertiseBtn.textContent = '🔗 Start Verification';
+                    verifyBtn.disabled = true;
+                    verifyBtn.textContent = '✓ I Completed All Tasks';
+                    getKeyBtn.disabled = true;
+                    getKeyBtn.textContent = '🎁 Generate Key';
+                    linkOpenedAt = 0;
+                    verificationStartedAt = 0;
+                }, 5000);
+            }, 1500);
         });
 
         // Copy key
         copyBtn.addEventListener('click', () => {
             const key = keyValue.textContent;
             navigator.clipboard.writeText(key).then(() => {
+                const originalText = copyBtn.textContent;
                 copyBtn.textContent = '✅ Copied!';
                 setTimeout(() => {
-                    copyBtn.textContent = 'Copy Key';
+                    copyBtn.textContent = originalText;
                 }, 2000);
+            }).catch(() => {
+                // Fallback for older browsers
+                const textArea = document.createElement('textarea');
+                textArea.value = key;
+                document.body.appendChild(textArea);
+                textArea.select();
+                document.execCommand('copy');
+                document.body.removeChild(textArea);
+                copyBtn.textContent = '✅ Copied!';
             });
         });
 
@@ -390,18 +508,28 @@
                 if (result.valid) {
                     showStatus(`✅ Valid key! Expires in ${result.hoursLeft} hours.`, 'success');
                 } else if (result.reason === 'expired') {
-                    showStatus('❌ Key has expired!', 'error');
+                    showStatus('❌ Key has expired! Generate a new one.', 'error');
                 } else {
-                    showStatus('❌ Invalid key!', 'error');
+                    showStatus('❌ Invalid key! Check your spelling or generate new key.', 'error');
                 }
                 
                 checkKeyBtn.disabled = false;
-                checkKeyBtn.innerHTML = 'Check Key';
-            }, 500);
+                checkKeyBtn.innerHTML = '🔍 Check Key';
+            }, 800);
         });
 
         // Clean expired keys on page load
         cleanExpiredKeys();
+
+        // Prevent cheating by detecting if user closed Linkvertise too fast
+        window.addEventListener('focus', () => {
+            if (linkvertiseWindow && !linkvertiseWindow.closed && linkOpenedAt > 0) {
+                const elapsed = Date.now() - linkOpenedAt;
+                if (elapsed < 10000) { // If returned within 10 seconds
+                    showStatus('⚠️ Please complete ALL Linkvertise steps properly!', 'error');
+                }
+            }
+        });
     </script>
 </body>
 </html>
