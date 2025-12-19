@@ -97,10 +97,6 @@
             color: white;
         }
 
-        .input-group {
-            margin-bottom: 20px;
-        }
-
         input[type="text"] {
             width: 100%;
             padding: 15px;
@@ -108,6 +104,7 @@
             border-radius: 10px;
             font-size: 16px;
             transition: border 0.3s;
+            margin-bottom: 15px;
         }
 
         input[type="text"]:focus {
@@ -170,13 +167,6 @@
             border: 1px solid #bee5eb;
         }
 
-        .timer {
-            text-align: center;
-            font-size: 14px;
-            color: #666;
-            margin-top: 10px;
-        }
-
         .loading {
             display: inline-block;
             width: 20px;
@@ -192,6 +182,10 @@
             0% { transform: rotate(0deg); }
             100% { transform: rotate(360deg); }
         }
+
+        #keyStorage {
+            display: none;
+        }
     </style>
 </head>
 <body>
@@ -204,23 +198,23 @@
         <!-- Step 1: Complete Linkvertise -->
         <div class="step">
             <h3>Step 1: Complete Task</h3>
-            <p>Click the button below and complete the verification steps. Make sure to complete all the steps properly.</p>
+            <p>Click the button below and complete the verification steps.</p>
         </div>
         <button id="linkvertiseBtn" class="btn btn-primary">Complete Verification</button>
 
         <!-- Step 2: Generate Key -->
         <div class="step">
             <h3>Step 2: Get Your Key</h3>
-            <p>After completing verification, click here to generate your 24-hour key.</p>
+            <p>After completing verification, generate your 24-hour key.</p>
         </div>
-        <button id="getKeyBtn" class="btn btn-primary" disabled>Get Key</button>
+        <button id="getKeyBtn" class="btn btn-primary" disabled>Generate Key</button>
 
         <!-- Key Display -->
         <div id="keyDisplay" class="key-display">
             <h3>✅ Your Key</h3>
             <div id="keyValue" class="key-value"></div>
             <p style="color: #666; font-size: 14px; margin-top: 10px;">
-                This key will expire in 24 hours. Copy it now!
+                This key expires in 24 hours. Copy it now!
             </p>
             <button id="copyBtn" class="btn btn-success">Copy Key</button>
         </div>
@@ -230,18 +224,20 @@
             <h3>Check Key Validity</h3>
             <p>Already have a key? Check if it's still valid.</p>
         </div>
-        <div class="input-group">
-            <input type="text" id="checkKeyInput" placeholder="Enter your key here">
-        </div>
+        <input type="text" id="checkKeyInput" placeholder="Enter your key here">
         <button id="checkKeyBtn" class="btn btn-primary">Check Key</button>
     </div>
+
+    <!-- HIDDEN KEY STORAGE - Executors can read this, browsers hide it -->
+    <script id="keyStorage" type="application/json">
+[]
+    </script>
 
     <script>
         // Configuration
         const CONFIG = {
-            linkvertiseUrl: 'https://linkvertise.com/access/349291/morningstar-war-pack-v3', // Replace with your Linkvertise link
-            backendUrl: 'key-web-production.up.railway.app', // Replace with your backend URL
-            pastebinRawUrl: 'https://pastebin.com/ErQJ4HXU' // Replace with your Pastebin raw URL
+            linkvertiseUrl: 'https://linkvertise.com/access/349291/morningstar-war-pack-v3', // CHANGE THIS to your link
+            verificationTime: 30000 // 30 seconds wait time
         };
 
         let verificationCompleted = false;
@@ -255,6 +251,61 @@
         const checkKeyBtn = document.getElementById('checkKeyBtn');
         const checkKeyInput = document.getElementById('checkKeyInput');
         const statusDiv = document.getElementById('status');
+        const keyStorageEl = document.getElementById('keyStorage');
+
+        // Key storage functions
+        function getStoredKeys() {
+            try {
+                const keys = JSON.parse(keyStorageEl.textContent.trim());
+                return Array.isArray(keys) ? keys : [];
+            } catch {
+                return [];
+            }
+        }
+
+        function saveKeys(keys) {
+            keyStorageEl.textContent = '\n' + JSON.stringify(keys, null, 2) + '\n    ';
+        }
+
+        function addKey(key) {
+            const keys = getStoredKeys();
+            keys.push(key);
+            saveKeys(keys);
+        }
+
+        function cleanExpiredKeys() {
+            const keys = getStoredKeys();
+            const now = Date.now();
+            const validKeys = keys.filter(key => {
+                const parts = key.split('-EXPIRES-');
+                if (parts.length !== 2) return false;
+                const expiry = parseInt(parts[1]);
+                return expiry > now;
+            });
+            saveKeys(validKeys);
+            return validKeys;
+        }
+
+        function isKeyValid(inputKey) {
+            const keys = cleanExpiredKeys();
+            const now = Date.now();
+
+            for (const key of keys) {
+                if (key.startsWith(inputKey.split('-EXPIRES-')[0])) {
+                    const parts = key.split('-EXPIRES-');
+                    if (parts.length === 2) {
+                        const expiry = parseInt(parts[1]);
+                        if (expiry > now) {
+                            const hoursLeft = Math.floor((expiry - now) / (1000 * 60 * 60));
+                            return { valid: true, hoursLeft };
+                        } else {
+                            return { valid: false, reason: 'expired' };
+                        }
+                    }
+                }
+            }
+            return { valid: false, reason: 'notfound' };
+        }
 
         // Show status message
         function showStatus(message, type) {
@@ -265,24 +316,29 @@
             }, 5000);
         }
 
+        // Generate random key
+        function generateKey() {
+            const randomStr = Math.random().toString(36).substring(2, 15).toUpperCase() + 
+                            Math.random().toString(36).substring(2, 15).toUpperCase();
+            const expiryTime = Date.now() + (24 * 60 * 60 * 1000); // 24 hours
+            return `KEY-${randomStr}-EXPIRES-${expiryTime}`;
+        }
+
         // Step 1: Linkvertise completion
         linkvertiseBtn.addEventListener('click', () => {
-            // Open Linkvertise in new tab
             window.open(CONFIG.linkvertiseUrl, '_blank');
-            
-            // Simulate verification (in real scenario, this would be verified by backend)
             showStatus('Complete all steps in the new window...', 'info');
             
-            // Enable key button after 30 seconds (simulated completion time)
+            // Enable key button after wait time
             setTimeout(() => {
                 verificationCompleted = true;
                 getKeyBtn.disabled = false;
-                showStatus('✅ Verification completed! You can now get your key.', 'success');
-            }, 30000);
+                showStatus('✅ Verification completed! You can now generate your key.', 'success');
+            }, CONFIG.verificationTime);
         });
 
         // Step 2: Generate Key
-        getKeyBtn.addEventListener('click', async () => {
+        getKeyBtn.addEventListener('click', () => {
             if (!verificationCompleted) {
                 showStatus('❌ Please complete the verification first!', 'error');
                 return;
@@ -291,30 +347,18 @@
             getKeyBtn.disabled = true;
             getKeyBtn.innerHTML = '<span class="loading"></span>Generating Key...';
 
-            try {
-                // Generate key
+            setTimeout(() => {
                 const key = generateKey();
+                addKey(key);
                 
-                // In production, send to backend to add to Pastebin
-                // await fetch(CONFIG.backendUrl + '/add-key', {
-                //     method: 'POST',
-                //     headers: { 'Content-Type': 'application/json' },
-                //     body: JSON.stringify({ key })
-                // });
-
-                // Display key
                 keyValue.textContent = key;
                 keyDisplay.classList.add('show');
                 showStatus('✅ Key generated successfully!', 'success');
                 
-                // Store in localStorage for demo
-                localStorage.setItem('generatedKey', key);
-                
-            } catch (error) {
-                showStatus('❌ Error generating key. Please try again.', 'error');
-            } finally {
-                getKeyBtn.innerHTML = 'Get Key';
-            }
+                getKeyBtn.innerHTML = 'Generate Key';
+                getKeyBtn.disabled = false;
+                verificationCompleted = false; // Reset for next time
+            }, 1000);
         });
 
         // Copy key
@@ -329,7 +373,7 @@
         });
 
         // Check key validity
-        checkKeyBtn.addEventListener('click', async () => {
+        checkKeyBtn.addEventListener('click', () => {
             const inputKey = checkKeyInput.value.trim();
             
             if (!inputKey) {
@@ -340,43 +384,24 @@
             checkKeyBtn.disabled = true;
             checkKeyBtn.innerHTML = '<span class="loading"></span>Checking...';
 
-            try {
-                // Fetch keys from Pastebin
-                const response = await fetch(CONFIG.pastebinRawUrl);
-                const keysText = await response.text();
-                const keys = keysText.split('\n').filter(k => k.trim());
-
-                // Check if key exists and is valid
-                const keyData = keys.find(k => k.startsWith(inputKey.split('-EXPIRES-')[0]));
+            setTimeout(() => {
+                const result = isKeyValid(inputKey);
                 
-                if (keyData) {
-                    const expiryTimestamp = parseInt(keyData.split('-EXPIRES-')[1]);
-                    const now = Date.now();
-                    
-                    if (now < expiryTimestamp) {
-                        const hoursLeft = Math.floor((expiryTimestamp - now) / (1000 * 60 * 60));
-                        showStatus(`✅ Valid key! Expires in ${hoursLeft} hours.`, 'success');
-                    } else {
-                        showStatus('❌ Key has expired!', 'error');
-                    }
+                if (result.valid) {
+                    showStatus(`✅ Valid key! Expires in ${result.hoursLeft} hours.`, 'success');
+                } else if (result.reason === 'expired') {
+                    showStatus('❌ Key has expired!', 'error');
                 } else {
                     showStatus('❌ Invalid key!', 'error');
                 }
-            } catch (error) {
-                showStatus('❌ Error checking key. Please try again.', 'error');
-            } finally {
+                
                 checkKeyBtn.disabled = false;
                 checkKeyBtn.innerHTML = 'Check Key';
-            }
+            }, 500);
         });
 
-        // Generate random key
-        function generateKey() {
-            const randomStr = Math.random().toString(36).substring(2, 15) + 
-                            Math.random().toString(36).substring(2, 15);
-            const expiryTime = Date.now() + (24 * 60 * 60 * 1000); // 24 hours
-            return `KEY-${randomStr.toUpperCase()}-EXPIRES-${expiryTime}`;
-        }
+        // Clean expired keys on page load
+        cleanExpiredKeys();
     </script>
 </body>
 </html>
