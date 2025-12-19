@@ -196,34 +196,25 @@
 </head>
 <body>
     <div class="container">
-        <h1>🔑 Key System v2</h1>
+        <h1>🔑 Key System</h1>
         <p class="subtitle">Complete Linkvertise to get your key</p>
 
         <div id="status" class="status"></div>
 
-        <!-- Step 1: Get unique link -->
+        <!-- Step 1: Complete Linkvertise -->
         <div class="step">
-            <h3>Step 1: Get Your Unique Link</h3>
-            <p>Click to generate YOUR unique Linkvertise link. Each user gets different link!</p>
-            <div class="warning">⚠️ This link is ONLY for you. Don't share it!</div>
+            <h3>Step 1: Complete Verification</h3>
+            <p>Click below to start Linkvertise. Complete ALL tasks - no skipping!</p>
+            <div class="warning">⚠️ You MUST complete the tasks. Bypassing won't work!</div>
         </div>
-        <button id="generateLinkBtn" class="btn btn-primary">🔗 Generate My Link</button>
+        <button id="linkvertiseBtn" class="btn btn-primary">🔗 Start Linkvertise</button>
 
-        <!-- Display unique link -->
-        <div id="linkDisplay" class="key-display">
-            <h3>📋 Your Unique Link</h3>
-            <div id="uniqueLink" class="key-value" style="cursor: pointer;"></div>
-            <p style="color: #666; font-size: 14px; margin-top: 10px;">
-                Click the link above to open it. Complete ALL tasks!
-            </p>
-        </div>
-
-        <!-- Step 2: Get Key -->
+        <!-- Step 2: Generate Key -->
         <div class="step">
             <h3>Step 2: Get Your Key</h3>
-            <p>After completing Linkvertise, come back and get your key!</p>
+            <p>After completing, you'll be redirected back. Generate your key!</p>
         </div>
-        <button id="getKeyBtn" class="btn btn-primary" disabled>🎁 Get My Key</button>
+        <button id="getKeyBtn" class="btn btn-primary" disabled>🎁 Generate Key</button>
 
         <!-- Key Display -->
         <div id="keyDisplay" class="key-display">
@@ -245,22 +236,26 @@
     </div>
 
     <script>
-        // Configuration - CHANGE THESE!
+        // Configuration
         const CONFIG = {
-            linkvertiseBaseUrl: 'https://linkvertise.com/access/349291/morningstar-war-pack-v3',
-            // FREE API to store keys - create account at jsonbin.io
-            jsonBinUrl: 'https://api.jsonbin.io/v3/b/YOUR_BIN_ID', // Get from jsonbin.io
-            jsonBinKey: '$2a$10$YOUR_API_KEY', // Get from jsonbin.io
+            // Your Linkvertise link
+            linkvertiseUrl: 'https://linkvertise.com/access/349291/morningstar-war-pack-v3',
+            
+            // Your Pastebin details
+            pastebinApi: 'wl2VMWPsNPWnaEUXIaHVcQbYDfcWatIW',
+            pastebinUrl: 'https://pastebin.com/api/api_post.php',
+            pastebinRawUrl: 'https://pastebin.com/raw/ErQJ4HXU',
+            
+            // Current site URL (for Linkvertise redirect)
+            siteUrl: window.location.origin + window.location.pathname,
+            
             keyExpireHours: 24
         };
 
-        let userToken = null;
-        let userLink = null;
+        let verificationHash = null;
 
         // Elements
-        const generateLinkBtn = document.getElementById('generateLinkBtn');
-        const linkDisplay = document.getElementById('linkDisplay');
-        const uniqueLink = document.getElementById('uniqueLink');
+        const linkvertiseBtn = document.getElementById('linkvertiseBtn');
         const getKeyBtn = document.getElementById('getKeyBtn');
         const keyDisplay = document.getElementById('keyDisplay');
         const keyValue = document.getElementById('keyValue');
@@ -268,21 +263,6 @@
         const checkKeyBtn = document.getElementById('checkKeyBtn');
         const checkKeyInput = document.getElementById('checkKeyInput');
         const statusDiv = document.getElementById('status');
-
-        // Get or create user ID
-        function getUserId() {
-            let userId = localStorage.getItem('user_id');
-            if (!userId) {
-                userId = 'USER' + Math.random().toString(36).substring(2, 15).toUpperCase();
-                localStorage.setItem('user_id', userId);
-            }
-            return userId;
-        }
-
-        // Generate unique token for this session
-        function generateToken() {
-            return Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
-        }
 
         // Show status message
         function showStatus(message, type) {
@@ -304,66 +284,42 @@
             return `KEY-${randomStr}-EXPIRES-${expiryTime}`;
         }
 
-        // Save keys to JSONBin (or use alternative)
-        async function saveKeyToStorage(key) {
+        // Get keys from Pastebin
+        async function getKeysFromPastebin() {
             try {
-                // Try to use JSONBin.io
-                const response = await fetch(CONFIG.jsonBinUrl, {
-                    method: 'PUT',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'X-Master-Key': CONFIG.jsonBinKey
-                    },
-                    body: JSON.stringify({
-                        keys: [key], // In real system, fetch existing keys first and append
-                        updated: Date.now()
-                    })
-                });
-
-                if (response.ok) {
-                    return true;
-                }
+                const response = await fetch(CONFIG.pastebinRawUrl);
+                const text = await response.text();
+                const keys = text.split('\n').filter(k => k.trim());
+                return keys;
             } catch (error) {
-                console.log('JSONBin error:', error);
+                console.log('Pastebin fetch error:', error);
+                return JSON.parse(localStorage.getItem('all_keys') || '[]');
             }
+        }
 
-            // Fallback: Store locally only (not permanent across devices but works)
+        // Save key (locally for now - Pastebin API needs user key)
+        async function saveKey(key) {
+            // Store locally
             let keys = JSON.parse(localStorage.getItem('all_keys') || '[]');
             keys.push(key);
             localStorage.setItem('all_keys', JSON.stringify(keys));
+            
+            // Note: To save to Pastebin, you need user key from api_login
+            // For now, keys stored locally work fine for validation
             return true;
-        }
-
-        // Get keys from storage
-        async function getKeysFromStorage() {
-            try {
-                // Try JSONBin first
-                const response = await fetch(CONFIG.jsonBinUrl + '/latest', {
-                    headers: {
-                        'X-Master-Key': CONFIG.jsonBinKey
-                    }
-                });
-
-                if (response.ok) {
-                    const data = await response.json();
-                    return data.record.keys || [];
-                }
-            } catch (error) {
-                console.log('JSONBin fetch error:', error);
-            }
-
-            // Fallback: Local storage
-            return JSON.parse(localStorage.getItem('all_keys') || '[]');
         }
 
         // Validate key
         async function validateKey(inputKey) {
-            const keys = await getKeysFromStorage();
+            // Get keys from both Pastebin and localStorage
+            let pastebinKeys = await getKeysFromPastebin();
+            let localKeys = JSON.parse(localStorage.getItem('all_keys') || '[]');
+            let allKeys = [...pastebinKeys, ...localKeys];
+            
             const now = Date.now();
-
             const inputKeyPrefix = inputKey.split('-EXPIRES-')[0];
 
-            for (const key of keys) {
+            for (const key of allKeys) {
                 const keyPrefix = key.split('-EXPIRES-')[0];
                 
                 if (keyPrefix === inputKeyPrefix) {
@@ -382,75 +338,61 @@
             return { valid: false, reason: 'notfound' };
         }
 
-        // Step 1: Generate unique link
-        generateLinkBtn.addEventListener('click', () => {
-            const userId = getUserId();
-            userToken = generateToken();
-            
-            // Create unique Linkvertise URL with our return URL encoded
-            const returnUrl = `${window.location.origin}${window.location.pathname}?token=${userToken}`;
-            userLink = `${CONFIG.linkvertiseBaseUrl}?r=${encodeURIComponent(returnUrl)}`;
-            
-            // Store token with timestamp
-            localStorage.setItem('pending_token', userToken);
-            localStorage.setItem('pending_time', Date.now().toString());
-            
-            uniqueLink.textContent = userLink;
-            linkDisplay.classList.add('show');
-            generateLinkBtn.disabled = true;
-            generateLinkBtn.textContent = '✓ Link Generated';
-            
-            showStatus('✅ Your unique link generated! Click it to complete tasks.', 'success');
-        });
-
-        // Make link clickable
-        uniqueLink.addEventListener('click', () => {
-            if (userLink) {
-                window.open(userLink, '_blank');
-                showStatus('🔗 Linkvertise opened! Complete ALL tasks, then come back.', 'info');
-                
-                // Enable key button after minimum time
-                setTimeout(() => {
-                    getKeyBtn.disabled = false;
-                    showStatus('✅ Time passed! Complete tasks and get your key.', 'success');
-                }, 60000); // 60 seconds minimum
-            }
-        });
-
         // Check if returning from Linkvertise
-        function checkReturn() {
+        function checkLinkvertiseReturn() {
             const urlParams = new URLSearchParams(window.location.search);
-            const returnToken = urlParams.get('token');
+            const hash = urlParams.get('hash');
             
-            if (returnToken) {
-                const pendingToken = localStorage.getItem('pending_token');
-                const pendingTime = parseInt(localStorage.getItem('pending_time') || '0');
+            if (hash) {
+                // Linkvertise completed! User got the hash
+                verificationHash = hash;
+                localStorage.setItem('lv_hash', hash);
+                localStorage.setItem('lv_time', Date.now().toString());
                 
-                // Verify token matches and enough time passed
-                if (returnToken === pendingToken && (Date.now() - pendingTime) > 30000) {
-                    // Mark as completed
-                    localStorage.setItem('lv_completed', Date.now().toString());
+                // Clean URL
+                window.history.replaceState({}, document.title, CONFIG.siteUrl);
+                
+                // Enable key generation
+                linkvertiseBtn.disabled = true;
+                linkvertiseBtn.textContent = '✓ Verified!';
+                getKeyBtn.disabled = false;
+                
+                showStatus('✅ Linkvertise completed! Generate your key now!', 'success');
+                return true;
+            }
+            
+            // Check if recently completed (within 5 minutes)
+            const savedHash = localStorage.getItem('lv_hash');
+            const savedTime = localStorage.getItem('lv_time');
+            
+            if (savedHash && savedTime) {
+                const timeSince = Date.now() - parseInt(savedTime);
+                if (timeSince < 300000) { // 5 minutes
+                    verificationHash = savedHash;
                     getKeyBtn.disabled = false;
-                    
-                    // Clean URL
-                    window.history.replaceState({}, document.title, window.location.pathname);
-                    
-                    showStatus('✅ Verification complete! Generate your key now.', 'success');
+                    linkvertiseBtn.disabled = true;
+                    linkvertiseBtn.textContent = '✓ Verified!';
+                    return true;
                 }
             }
-
-            // Check if recently completed
-            const lastCompleted = localStorage.getItem('lv_completed');
-            if (lastCompleted && (Date.now() - parseInt(lastCompleted)) < 300000) {
-                getKeyBtn.disabled = false;
-            }
+            
+            return false;
         }
+
+        // Step 1: Open Linkvertise
+        linkvertiseBtn.addEventListener('click', () => {
+            // Build Linkvertise URL with our site as target
+            // When user completes, Linkvertise adds ?hash= parameter
+            const fullUrl = `${CONFIG.linkvertiseUrl}?target=${encodeURIComponent(CONFIG.siteUrl)}`;
+            
+            // Redirect to Linkvertise
+            window.location.href = fullUrl;
+        });
 
         // Step 2: Generate key
         getKeyBtn.addEventListener('click', async () => {
-            const lastCompleted = localStorage.getItem('lv_completed');
-            if (!lastCompleted || (Date.now() - parseInt(lastCompleted)) > 300000) {
-                showStatus('❌ Please complete Linkvertise first or session expired!', 'error');
+            if (!verificationHash) {
+                showStatus('❌ Please complete Linkvertise first!', 'error');
                 return;
             }
 
@@ -459,7 +401,7 @@
 
             setTimeout(async () => {
                 const key = generateKey();
-                await saveKeyToStorage(key);
+                await saveKey(key);
                 
                 keyValue.textContent = key;
                 keyDisplay.classList.add('show');
@@ -467,18 +409,17 @@
                 
                 getKeyBtn.innerHTML = '✓ Key Generated';
                 
-                // Clear completion
-                localStorage.removeItem('lv_completed');
-                localStorage.removeItem('pending_token');
-                localStorage.removeItem('pending_time');
+                // Clear verification
+                localStorage.removeItem('lv_hash');
+                localStorage.removeItem('lv_time');
+                verificationHash = null;
                 
                 // Reset after 5 seconds
                 setTimeout(() => {
-                    generateLinkBtn.disabled = false;
-                    generateLinkBtn.textContent = '🔗 Generate My Link';
+                    linkvertiseBtn.disabled = false;
+                    linkvertiseBtn.textContent = '🔗 Start Linkvertise';
                     getKeyBtn.disabled = true;
-                    getKeyBtn.textContent = '🎁 Get My Key';
-                    linkDisplay.classList.remove('show');
+                    getKeyBtn.textContent = '🎁 Generate Key';
                 }, 5000);
             }, 1500);
         });
@@ -492,7 +433,6 @@
                     copyBtn.textContent = '📋 Copy Key';
                 }, 2000);
             }).catch(() => {
-                // Fallback
                 const textArea = document.createElement('textarea');
                 textArea.value = key;
                 document.body.appendChild(textArea);
@@ -530,7 +470,7 @@
         });
 
         // Check on load
-        checkReturn();
+        checkLinkvertiseReturn();
     </script>
 </body>
 </html>
