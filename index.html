@@ -193,42 +193,53 @@
             border-left: 3px solid #ffc107;
         }
 
-        .info-box {
-            background: #e7f3ff;
-            color: #004085;
+        .code-box {
+            background: #2d2d2d;
+            color: #f8f8f2;
             padding: 15px;
             border-radius: 8px;
-            margin-bottom: 20px;
-            border-left: 4px solid #007bff;
-            font-size: 13px;
+            font-family: 'Courier New', monospace;
+            font-size: 24px;
+            text-align: center;
+            margin: 15px 0;
+            letter-spacing: 3px;
+            font-weight: bold;
         }
     </style>
 </head>
 <body>
     <div class="container">
-        <h1>🔑 Key System v3</h1>
-        <p class="subtitle">Complete Linkvertise to get your key</p>
+        <h1>🔑 Key System</h1>
+        <p class="subtitle">Complete Linkvertise & enter code to verify</p>
 
         <div id="status" class="status"></div>
 
-        <div class="info-box">
-            💡 <strong>How it works:</strong> Open Linkvertise, complete tasks, then come back and generate key. Your session is tracked!
+        <!-- Step 1: Get verification code -->
+        <div class="step">
+            <h3>Step 1: Get Your Code</h3>
+            <p>Click to generate YOUR unique verification code. Remember it!</p>
+        </div>
+        <button id="generateCodeBtn" class="btn btn-primary">🎲 Generate Code</button>
+
+        <!-- Display code -->
+        <div id="codeDisplay" class="key-display">
+            <h3>📋 Your Verification Code</h3>
+            <div id="codeValue" class="code-box"></div>
+            <p style="color: #dc3545; font-size: 13px; margin-top: 10px; font-weight: bold;">
+                ⚠️ REMEMBER THIS CODE! You'll need it after Linkvertise!
+            </p>
+            <button id="openLinkBtn" class="btn btn-success">🔗 Open Linkvertise Now</button>
         </div>
 
-        <!-- Step 1: Start verification -->
-        <div class="step">
-            <h3>Step 1: Start Verification</h3>
-            <p>Click to open Linkvertise. Complete ALL tasks (no skipping!)</p>
-            <div class="warning">⚠️ Keep this tab open! Your session is being tracked.</div>
+        <!-- Step 2: Enter code after completion -->
+        <div id="verifySection" style="display: none;">
+            <div class="step">
+                <h3>Step 2: Verify Completion</h3>
+                <p>Completed Linkvertise? Enter the code you got earlier:</p>
+            </div>
+            <input type="text" id="codeInput" placeholder="Enter your code (4 digits)" maxlength="4">
+            <button id="verifyCodeBtn" class="btn btn-primary">✓ Verify & Get Key</button>
         </div>
-        <button id="linkvertiseBtn" class="btn btn-primary">🔗 Open Linkvertise</button>
-
-        <!-- Step 2: Generate key -->
-        <div class="step">
-            <h3>Step 2: Get Your Key</h3>
-            <p>After completing Linkvertise, click here to get your key!</p>
-        </div>
-        <button id="getKeyBtn" class="btn btn-primary" disabled>🎁 Generate Key</button>
 
         <!-- Key Display -->
         <div id="keyDisplay" class="key-display">
@@ -254,56 +265,27 @@
         const CONFIG = {
             linkvertiseUrl: 'https://linkvertise.com/access/349291/morningstar-war-pack-v3',
             pastebinRawUrl: 'https://pastebin.com/raw/ErQJ4HXU',
-            minWaitTime: 60000, // 60 seconds minimum
+            discordWebhook: '', // Optional: Add Discord webhook to log completions
             keyExpireHours: 24
         };
 
-        let sessionId = null;
-        let linkvertiseOpened = false;
+        let currentCode = null;
+        let codeTimestamp = null;
 
         // Elements
-        const linkvertiseBtn = document.getElementById('linkvertiseBtn');
-        const getKeyBtn = document.getElementById('getKeyBtn');
+        const generateCodeBtn = document.getElementById('generateCodeBtn');
+        const codeDisplay = document.getElementById('codeDisplay');
+        const codeValue = document.getElementById('codeValue');
+        const openLinkBtn = document.getElementById('openLinkBtn');
+        const verifySection = document.getElementById('verifySection');
+        const codeInput = document.getElementById('codeInput');
+        const verifyCodeBtn = document.getElementById('verifyCodeBtn');
         const keyDisplay = document.getElementById('keyDisplay');
         const keyValue = document.getElementById('keyValue');
         const copyBtn = document.getElementById('copyBtn');
         const checkKeyBtn = document.getElementById('checkKeyBtn');
         const checkKeyInput = document.getElementById('checkKeyInput');
         const statusDiv = document.getElementById('status');
-
-        // Generate browser fingerprint (like HWID)
-        function generateFingerprint() {
-            const nav = navigator;
-            const screen = window.screen;
-            const fingerprint = [
-                nav.userAgent,
-                nav.language,
-                screen.colorDepth,
-                screen.width + 'x' + screen.height,
-                new Date().getTimezoneOffset(),
-                nav.hardwareConcurrency || 'unknown',
-                nav.deviceMemory || 'unknown'
-            ].join('|');
-            
-            // Simple hash
-            let hash = 0;
-            for (let i = 0; i < fingerprint.length; i++) {
-                const char = fingerprint.charCodeAt(i);
-                hash = ((hash << 5) - hash) + char;
-                hash = hash & hash;
-            }
-            return 'FP' + Math.abs(hash).toString(36).toUpperCase();
-        }
-
-        // Get or create session ID
-        function getSessionId() {
-            let sid = sessionStorage.getItem('key_session');
-            if (!sid) {
-                sid = generateFingerprint() + '_' + Date.now();
-                sessionStorage.setItem('key_session', sid);
-            }
-            return sid;
-        }
 
         // Show status message
         function showStatus(message, type) {
@@ -312,6 +294,11 @@
             setTimeout(() => {
                 statusDiv.className = 'status';
             }, 5000);
+        }
+
+        // Generate 4-digit code
+        function generateCode() {
+            return Math.floor(1000 + Math.random() * 9000).toString();
         }
 
         // Generate key
@@ -325,14 +312,10 @@
             return `KEY-${randomStr}-EXPIRES-${expiryTime}`;
         }
 
-        // Save key locally
+        // Save key
         function saveKey(key) {
             let keys = JSON.parse(localStorage.getItem('all_keys') || '[]');
-            // Remove old keys from same fingerprint
-            const fp = generateFingerprint();
-            keys = keys.filter(k => !k.includes(fp));
-            // Add new key with fingerprint
-            keys.push(`${key}-FP-${fp}`);
+            keys.push(key);
             localStorage.setItem('all_keys', JSON.stringify(keys));
         }
 
@@ -341,7 +324,7 @@
             try {
                 const response = await fetch(CONFIG.pastebinRawUrl);
                 const text = await response.text();
-                return text.split('\n').filter(k => k.trim());
+                return text.split('\n').filter(k => k.trim() && k.includes('KEY-'));
             } catch (error) {
                 return [];
             }
@@ -349,23 +332,18 @@
 
         // Validate key
         async function validateKey(inputKey) {
-            // Get keys from both sources
             const pastebinKeys = await getKeysFromPastebin();
             const localKeys = JSON.parse(localStorage.getItem('all_keys') || '[]');
             const allKeys = [...pastebinKeys, ...localKeys];
             
             const now = Date.now();
-            
-            // Clean input key (remove FP if present)
-            const cleanInput = inputKey.split('-FP-')[0];
-            const inputKeyPrefix = cleanInput.split('-EXPIRES-')[0];
+            const inputKeyPrefix = inputKey.split('-EXPIRES-')[0];
 
             for (const key of allKeys) {
-                const cleanKey = key.split('-FP-')[0];
-                const keyPrefix = cleanKey.split('-EXPIRES-')[0];
+                const keyPrefix = key.split('-EXPIRES-')[0];
                 
                 if (keyPrefix === inputKeyPrefix) {
-                    const parts = cleanKey.split('-EXPIRES-');
+                    const parts = key.split('-EXPIRES-');
                     if (parts.length === 2) {
                         const expiry = parseInt(parts[1]);
                         if (expiry > now) {
@@ -380,78 +358,138 @@
             return { valid: false, reason: 'notfound' };
         }
 
-        // Step 1: Open Linkvertise
-        linkvertiseBtn.addEventListener('click', () => {
-            sessionId = getSessionId();
+        // Send to Discord (optional)
+        async function logToDiscord(message) {
+            if (!CONFIG.discordWebhook) return;
             
-            // Open Linkvertise in new tab
+            try {
+                await fetch(CONFIG.discordWebhook, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        content: message,
+                        username: 'Key System'
+                    })
+                });
+            } catch (error) {
+                console.log('Discord log failed:', error);
+            }
+        }
+
+        // Step 1: Generate code
+        generateCodeBtn.addEventListener('click', () => {
+            currentCode = generateCode();
+            codeTimestamp = Date.now();
+            
+            // Store code
+            localStorage.setItem('verify_code', currentCode);
+            localStorage.setItem('verify_time', codeTimestamp.toString());
+            
+            codeValue.textContent = currentCode;
+            codeDisplay.classList.add('show');
+            generateCodeBtn.disabled = true;
+            generateCodeBtn.textContent = '✓ Code Generated';
+            
+            showStatus('✅ Code generated! Click "Open Linkvertise" to continue.', 'success');
+        });
+
+        // Open Linkvertise
+        openLinkBtn.addEventListener('click', () => {
+            if (!currentCode) {
+                showStatus('❌ Generate a code first!', 'error');
+                return;
+            }
+
+            // Open Linkvertise
             const win = window.open(CONFIG.linkvertiseUrl, '_blank');
             
             if (!win) {
-                showStatus('❌ Please allow popups for this site!', 'error');
+                showStatus('❌ Please allow popups!', 'error');
                 return;
             }
 
-            linkvertiseOpened = true;
-            linkvertiseBtn.disabled = true;
-            linkvertiseBtn.textContent = '✓ Linkvertise Opened';
+            openLinkBtn.disabled = true;
+            openLinkBtn.textContent = '✓ Linkvertise Opened';
             
-            // Save start time
-            sessionStorage.setItem('lv_start', Date.now().toString());
+            // Show verify section
+            verifySection.style.display = 'block';
             
-            showStatus('🔗 Complete ALL Linkvertise tasks, then come back!', 'info');
+            showStatus('🔗 Complete ALL Linkvertise tasks, then come back and enter your code!', 'info');
             
-            // Enable key button after minimum time
-            setTimeout(() => {
-                if (linkvertiseOpened) {
-                    getKeyBtn.disabled = false;
-                    showStatus('✅ Time passed! Complete tasks and generate key.', 'success');
-                }
-            }, CONFIG.minWaitTime);
+            // Log to Discord
+            logToDiscord(`🔢 Code generated: ${currentCode} - User opened Linkvertise`);
         });
 
-        // Step 2: Generate key
-        getKeyBtn.addEventListener('click', async () => {
-            const startTime = sessionStorage.getItem('lv_start');
+        // Verify code and generate key
+        verifyCodeBtn.addEventListener('click', async () => {
+            const enteredCode = codeInput.value.trim();
+            const savedCode = localStorage.getItem('verify_code');
+            const savedTime = localStorage.getItem('verify_time');
             
-            if (!startTime) {
-                showStatus('❌ Please open Linkvertise first!', 'error');
+            if (!enteredCode) {
+                showStatus('❌ Please enter the code!', 'error');
                 return;
             }
 
-            const elapsed = Date.now() - parseInt(startTime);
-            
-            if (elapsed < CONFIG.minWaitTime) {
-                const remaining = Math.ceil((CONFIG.minWaitTime - elapsed) / 1000);
-                showStatus(`❌ Wait ${remaining} more seconds!`, 'error');
+            if (!savedCode || !savedTime) {
+                showStatus('❌ No active verification! Generate a new code.', 'error');
                 return;
             }
 
-            getKeyBtn.disabled = true;
-            getKeyBtn.innerHTML = '<span class="loading"></span>Generating Key...';
+            // Check if code matches
+            if (enteredCode !== savedCode) {
+                showStatus('❌ Wrong code! Enter the 4-digit code you got.', 'error');
+                return;
+            }
 
-            setTimeout(() => {
+            // Check if code is not too old (10 minutes max)
+            const elapsed = Date.now() - parseInt(savedTime);
+            if (elapsed > 600000) {
+                showStatus('❌ Code expired! Generate a new one.', 'error');
+                localStorage.removeItem('verify_code');
+                localStorage.removeItem('verify_time');
+                return;
+            }
+
+            // Check if enough time passed (at least 30 seconds)
+            if (elapsed < 30000) {
+                const remaining = Math.ceil((30000 - elapsed) / 1000);
+                showStatus(`❌ Too fast! Wait ${remaining} more seconds.`, 'error');
+                return;
+            }
+
+            // Code is correct! Generate key
+            verifyCodeBtn.disabled = true;
+            verifyCodeBtn.innerHTML = '<span class="loading"></span>Generating Key...';
+
+            setTimeout(async () => {
                 const key = generateKey();
                 saveKey(key);
                 
-                // Show only the clean key to user
-                const cleanKey = key.split('-FP-')[0];
-                keyValue.textContent = cleanKey;
+                keyValue.textContent = key;
                 keyDisplay.classList.add('show');
                 showStatus('✅ Key generated successfully!', 'success');
                 
-                getKeyBtn.innerHTML = '✓ Key Generated';
+                // Log to Discord
+                await logToDiscord(`✅ Key generated: ${key} - Code: ${savedCode}`);
                 
-                // Clear session
-                sessionStorage.removeItem('lv_start');
-                linkvertiseOpened = false;
+                // Clear verification
+                localStorage.removeItem('verify_code');
+                localStorage.removeItem('verify_time');
+                
+                // Hide verify section
+                verifySection.style.display = 'none';
+                codeDisplay.classList.remove('show');
                 
                 // Reset after 5 seconds
                 setTimeout(() => {
-                    linkvertiseBtn.disabled = false;
-                    linkvertiseBtn.textContent = '🔗 Open Linkvertise';
-                    getKeyBtn.disabled = true;
-                    getKeyBtn.textContent = '🎁 Generate Key';
+                    generateCodeBtn.disabled = false;
+                    generateCodeBtn.textContent = '🎲 Generate Code';
+                    openLinkBtn.disabled = false;
+                    openLinkBtn.textContent = '🔗 Open Linkvertise Now';
+                    verifyCodeBtn.disabled = false;
+                    verifyCodeBtn.innerHTML = '✓ Verify & Get Key';
+                    codeInput.value = '';
                 }, 5000);
             }, 1500);
         });
@@ -494,15 +532,32 @@
             } else if (result.reason === 'expired') {
                 showStatus('❌ Key has expired! Generate a new one.', 'error');
             } else {
-                showStatus('❌ Invalid key! Check your spelling or generate new key.', 'error');
+                showStatus('❌ Invalid key! Check your spelling.', 'error');
             }
             
             checkKeyBtn.disabled = false;
             checkKeyBtn.innerHTML = '🔍 Check Key';
         });
 
-        // Initialize
-        sessionId = getSessionId();
+        // Check if there's a pending verification
+        window.addEventListener('load', () => {
+            const savedCode = localStorage.getItem('verify_code');
+            const savedTime = localStorage.getItem('verify_time');
+            
+            if (savedCode && savedTime) {
+                const elapsed = Date.now() - parseInt(savedTime);
+                if (elapsed < 600000) { // 10 minutes
+                    currentCode = savedCode;
+                    codeTimestamp = parseInt(savedTime);
+                    codeValue.textContent = savedCode;
+                    codeDisplay.classList.add('show');
+                    verifySection.style.display = 'block';
+                    generateCodeBtn.disabled = true;
+                    openLinkBtn.disabled = true;
+                    showStatus('💡 You have a pending verification! Enter your code.', 'info');
+                }
+            }
+        });
     </script>
 </body>
 </html>
