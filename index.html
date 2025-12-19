@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Key System</title>
+    <title>Key System v2</title>
     <style>
         * {
             margin: 0;
@@ -225,17 +225,17 @@
         <!-- Step 1: Complete Linkvertise -->
         <div class="step">
             <h3>Step 1: Complete Task</h3>
-            <p>Click the button below and complete ALL the verification steps. Don't skip any!</p>
-            <div class="warning">⚠️ Must complete the full Linkvertise process, not just wait!</div>
+            <p>Click the button below. It will open Linkvertise in a NEW TAB. Complete ALL the steps!</p>
+            <div class="warning">⚠️ After completing, come back to THIS TAB and click "I'm Back"!</div>
         </div>
-        <button id="linkvertiseBtn" class="btn btn-primary">🔗 Start Verification</button>
+        <button id="linkvertiseBtn" class="btn btn-primary">🔗 Open Linkvertise</button>
 
         <!-- Step 2: Verify Completion -->
         <div class="step">
-            <h3>Step 2: Verify Completion</h3>
-            <p>After completing ALL tasks, click to confirm you finished.</p>
+            <h3>Step 2: Confirm Completion</h3>
+            <p>Finished the Linkvertise tasks? Click here to verify!</p>
         </div>
-        <button id="verifyBtn" class="btn btn-primary" disabled>✓ I Completed All Tasks</button>
+        <button id="verifyBtn" class="btn btn-primary" disabled>✓ I'm Back - Verify Me</button>
 
         <!-- Step 3: Generate Key -->
         <div class="step">
@@ -272,12 +272,13 @@
         // Configuration
         const CONFIG = {
             linkvertiseUrl: 'https://linkvertise.com/access/349291/morningstar-war-pack-v3',
-            // Your website URL - Linkvertise will redirect back here
-            redirectUrl: window.location.origin + window.location.pathname
+            minTaskTime: 45000, // Minimum 45 seconds to complete tasks
+            verifyDelay: 15000  // 15 second verification
         };
 
+        let linkOpenedAt = 0;
+        let linkvertiseWindow = null;
         let verificationCompleted = false;
-        let sessionToken = null;
 
         // Elements
         const linkvertiseBtn = document.getElementById('linkvertiseBtn');
@@ -434,18 +435,97 @@
         // Check on page load
         checkLinkvertiseReturn();
 
-        // Step 1: Open Linkvertise with redirect
+        // Show status message
+        function showStatus(message, type) {
+            statusDiv.textContent = message;
+            statusDiv.className = `status show ${type}`;
+            setTimeout(() => {
+                statusDiv.className = 'status';
+            }, 5000);
+        }
+
+        // Update timer
+        function updateTimer() {
+            if (linkOpenedAt === 0) return;
+
+            const elapsed = Date.now() - linkOpenedAt;
+            const remaining = Math.max(0, CONFIG.minTaskTime - elapsed);
+
+            if (remaining > 0) {
+                const seconds = Math.ceil(remaining / 1000);
+                timerDiv.textContent = `⏳ Complete Linkvertise tasks... (${seconds}s minimum)`;
+                timerDiv.className = 'timer show';
+            } else {
+                timerDiv.textContent = '✓ Time passed! Click "I\'m Back" if you finished.';
+                timerDiv.className = 'timer show';
+                verifyBtn.disabled = false;
+            }
+        }
+
+        // Generate random key
+        function generateKey() {
+            const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+            let randomStr = '';
+            for (let i = 0; i < 16; i++) {
+                randomStr += chars.charAt(Math.floor(Math.random() * chars.length));
+            }
+            const expiryTime = Date.now() + (24 * 60 * 60 * 1000); // 24 hours
+            return `KEY-${randomStr}-EXPIRES-${expiryTime}`;
+        }
+
+        // Step 1: Open Linkvertise in new tab
         linkvertiseBtn.addEventListener('click', () => {
-            // Build Linkvertise URL with redirect back to our site
-            const fullUrl = CONFIG.linkvertiseUrl + '?r=' + encodeURIComponent(CONFIG.redirectUrl);
+            linkvertiseWindow = window.open(CONFIG.linkvertiseUrl, '_blank');
             
-            // Redirect to Linkvertise
-            window.location.href = fullUrl;
+            if (!linkvertiseWindow) {
+                showStatus('❌ Please allow popups for this site!', 'error');
+                return;
+            }
+
+            linkOpenedAt = Date.now();
+            linkvertiseBtn.textContent = '✓ Linkvertise Opened';
+            
+            showStatus('🔗 Complete ALL Linkvertise tasks, then come back here!', 'info');
+            
+            // Start timer
+            const timerInterval = setInterval(() => {
+                updateTimer();
+                
+                // Stop timer when time is up
+                if (Date.now() - linkOpenedAt >= CONFIG.minTaskTime) {
+                    clearInterval(timerInterval);
+                }
+            }, 1000);
+            
+            updateTimer();
         });
 
-        // Step 2: Verify completion (not needed with real redirect)
+        // Step 2: User confirms completion
         verifyBtn.addEventListener('click', () => {
-            showStatus('ℹ️ Click "Start Verification" to begin Linkvertise tasks', 'info');
+            const elapsed = Date.now() - linkOpenedAt;
+            
+            if (elapsed < CONFIG.minTaskTime) {
+                const remaining = Math.ceil((CONFIG.minTaskTime - elapsed) / 1000);
+                showStatus(`❌ Wait ${remaining} more seconds! Complete the tasks!`, 'error');
+                return;
+            }
+
+            verifyBtn.disabled = true;
+            verifyBtn.innerHTML = '<span class="loading"></span>Verifying...';
+            timerDiv.textContent = '⏳ Verifying your completion...';
+            timerDiv.className = 'timer show';
+
+            // Verification delay
+            setTimeout(() => {
+                verificationCompleted = true;
+                localStorage.setItem('lv_completed', Date.now().toString());
+                
+                verifyBtn.textContent = '✓ Verified';
+                getKeyBtn.disabled = false;
+                timerDiv.className = 'timer';
+                
+                showStatus('✅ Verification complete! Generate your key now.', 'success');
+            }, CONFIG.verifyDelay);
         });
 
         // Step 3: Generate Key
@@ -468,18 +548,17 @@
                 
                 getKeyBtn.innerHTML = '✓ Key Generated';
                 
-                // Clear verification session
-                sessionStorage.removeItem('linkvertise_verified');
-                
-                // Reset for next use after 5 seconds
+                // Clear verification after 5 seconds
                 setTimeout(() => {
+                    localStorage.removeItem('lv_completed');
                     linkvertiseBtn.disabled = false;
-                    linkvertiseBtn.textContent = '🔗 Start Verification';
+                    linkvertiseBtn.textContent = '🔗 Open Linkvertise';
                     verifyBtn.disabled = true;
-                    verifyBtn.textContent = '✓ I Completed All Tasks';
+                    verifyBtn.textContent = '✓ I\'m Back - Verify Me';
                     getKeyBtn.disabled = true;
                     getKeyBtn.textContent = '🎁 Generate Key';
                     verificationCompleted = false;
+                    linkOpenedAt = 0;
                 }, 5000);
             }, 1500);
         });
