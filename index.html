@@ -272,14 +272,12 @@
         // Configuration
         const CONFIG = {
             linkvertiseUrl: 'https://linkvertise.com/access/349291/morningstar-war-pack-v3',
-            minWaitTime: 60000, // Minimum 60 seconds after opening link
-            verifyWaitTime: 30000 // Extra 30 seconds to confirm completion
+            // Your website URL - Linkvertise will redirect back here
+            redirectUrl: window.location.origin + window.location.pathname
         };
 
-        let linkOpenedAt = 0;
-        let verificationStartedAt = 0;
-        let linkvertiseWindow = null;
-        let timerInterval = null;
+        let verificationCompleted = false;
+        let sessionToken = null;
 
         // Elements
         const linkvertiseBtn = document.getElementById('linkvertiseBtn');
@@ -296,6 +294,8 @@
         // Key storage functions
         function getStoredKeys() {
             try {
+                // Always get fresh content from the script tag
+                const keyStorageEl = document.getElementById('keyStorage');
                 const keys = JSON.parse(keyStorageEl.textContent.trim());
                 return Array.isArray(keys) ? keys : [];
             } catch {
@@ -304,7 +304,11 @@
         }
 
         function saveKeys(keys) {
+            const keyStorageEl = document.getElementById('keyStorage');
             keyStorageEl.textContent = '\n' + JSON.stringify(keys, null, 2) + '\n    ';
+            
+            // Force page to recognize the change
+            keyStorageEl.setAttribute('data-updated', Date.now().toString());
         }
 
         function addKey(key) {
@@ -327,13 +331,22 @@
         }
 
         function isKeyValid(inputKey) {
-            const keys = cleanExpiredKeys();
+            // Always get fresh keys from storage
+            const keys = getStoredKeys();
             const now = Date.now();
+
+            // Clean expired keys first
+            const validKeys = keys.filter(key => {
+                const parts = key.split('-EXPIRES-');
+                if (parts.length !== 2) return false;
+                const expiry = parseInt(parts[1]);
+                return expiry > now;
+            });
 
             // Extract just the key part (before -EXPIRES-)
             const inputKeyPrefix = inputKey.split('-EXPIRES-')[0];
 
-            for (const key of keys) {
+            for (const key of validKeys) {
                 const keyPrefix = key.split('-EXPIRES-')[0];
                 
                 if (keyPrefix === inputKeyPrefix) {
@@ -352,7 +365,42 @@
             return { valid: false, reason: 'notfound' };
         }
 
-        // Show status message
+        // Check if returning from Linkvertise with verification
+        function checkLinkvertiseReturn() {
+            const urlParams = new URLSearchParams(window.location.search);
+            
+            // Check for Linkvertise completion parameters
+            if (urlParams.has('hash') || urlParams.has('token') || urlParams.has('verify')) {
+                sessionToken = urlParams.get('hash') || urlParams.get('token') || urlParams.get('verify') || 'verified';
+                verificationCompleted = true;
+                
+                // Clean URL
+                window.history.replaceState({}, document.title, window.location.pathname);
+                
+                // Enable key generation
+                linkvertiseBtn.disabled = true;
+                linkvertiseBtn.textContent = '✓ Verified';
+                verifyBtn.disabled = true;
+                verifyBtn.textContent = '✓ Verified';
+                getKeyBtn.disabled = false;
+                
+                showStatus('✅ Verification completed! You can now generate your key.', 'success');
+                
+                // Store verification in session
+                sessionStorage.setItem('linkvertise_verified', Date.now().toString());
+            } else {
+                // Check if recently verified (within 5 minutes)
+                const lastVerified = sessionStorage.getItem('linkvertise_verified');
+                if (lastVerified && (Date.now() - parseInt(lastVerified)) < 300000) {
+                    verificationCompleted = true;
+                    linkvertiseBtn.disabled = true;
+                    linkvertiseBtn.textContent = '✓ Verified';
+                    verifyBtn.disabled = true;
+                    verifyBtn.textContent = '✓ Verified';
+                    getKeyBtn.disabled = false;
+                }
+            }
+        }
         function showStatus(message, type) {
             statusDiv.textContent = message;
             statusDiv.className = `status show ${type}`;
@@ -361,22 +409,13 @@
             }, 5000);
         }
 
-        // Update timer display
-        function updateTimer() {
-            if (linkOpenedAt === 0) return;
-
-            const elapsed = Date.now() - linkOpenedAt;
-            const remaining = Math.max(0, CONFIG.minWaitTime - elapsed);
-
-            if (remaining > 0) {
-                const seconds = Math.ceil(remaining / 1000);
-                timerDiv.textContent = `⏳ Complete the tasks... (${seconds}s minimum wait)`;
-                timerDiv.className = 'timer show';
-            } else {
-                timerDiv.textContent = '✓ Minimum time passed! Complete tasks then click verify.';
-                timerDiv.className = 'timer show';
-                verifyBtn.disabled = false;
-            }
+        // Show status message
+        function showStatus(message, type) {
+            statusDiv.textContent = message;
+            statusDiv.className = `status show ${type}`;
+            setTimeout(() => {
+                statusDiv.className = 'status';
+            }, 5000);
         }
 
         // Generate random key
@@ -392,56 +431,30 @@
 
         const keyStorageEl = document.getElementById('keyStorage');
 
-        // Step 1: Open Linkvertise
-        linkvertiseBtn.addEventListener('click', () => {
-            // Open Linkvertise in new tab
-            linkvertiseWindow = window.open(CONFIG.linkvertiseUrl, '_blank');
-            
-            if (!linkvertiseWindow) {
-                showStatus('❌ Please allow popups for this site!', 'error');
-                return;
-            }
+        // Check on page load
+        checkLinkvertiseReturn();
 
-            linkOpenedAt = Date.now();
-            linkvertiseBtn.disabled = true;
-            linkvertiseBtn.textContent = '✓ Link Opened';
+        // Step 1: Open Linkvertise with redirect
+        linkvertiseBtn.addEventListener('click', () => {
+            // Build Linkvertise URL with redirect back to our site
+            const fullUrl = CONFIG.linkvertiseUrl + '?r=' + encodeURIComponent(CONFIG.redirectUrl);
             
-            showStatus('🔗 Linkvertise opened! Complete ALL the steps.', 'info');
-            
-            // Start timer
-            timerInterval = setInterval(updateTimer, 1000);
-            updateTimer();
+            // Redirect to Linkvertise
+            window.location.href = fullUrl;
         });
 
-        // Step 2: Verify completion
+        // Step 2: Verify completion (not needed with real redirect)
         verifyBtn.addEventListener('click', () => {
-            const elapsed = Date.now() - linkOpenedAt;
-            
-            if (elapsed < CONFIG.minWaitTime) {
-                const remaining = Math.ceil((CONFIG.minWaitTime - elapsed) / 1000);
-                showStatus(`❌ Please wait ${remaining} more seconds after opening link!`, 'error');
-                return;
-            }
-
-            verifyBtn.disabled = true;
-            verifyBtn.innerHTML = '<span class="loading"></span>Verifying...';
-            verificationStartedAt = Date.now();
-
-            // Additional verification wait
-            timerDiv.textContent = '⏳ Verifying completion...';
-            
-            setTimeout(() => {
-                clearInterval(timerInterval);
-                timerDiv.className = 'timer';
-                
-                verifyBtn.textContent = '✓ Verified';
-                getKeyBtn.disabled = false;
-                showStatus('✅ Verification confirmed! You can now generate your key.', 'success');
-            }, CONFIG.verifyWaitTime);
+            showStatus('ℹ️ Click "Start Verification" to begin Linkvertise tasks', 'info');
         });
 
         // Step 3: Generate Key
         getKeyBtn.addEventListener('click', () => {
+            if (!verificationCompleted) {
+                showStatus('❌ Please complete Linkvertise verification first!', 'error');
+                return;
+            }
+
             getKeyBtn.disabled = true;
             getKeyBtn.innerHTML = '<span class="loading"></span>Generating Key...';
 
@@ -455,7 +468,10 @@
                 
                 getKeyBtn.innerHTML = '✓ Key Generated';
                 
-                // Reset for next use
+                // Clear verification session
+                sessionStorage.removeItem('linkvertise_verified');
+                
+                // Reset for next use after 5 seconds
                 setTimeout(() => {
                     linkvertiseBtn.disabled = false;
                     linkvertiseBtn.textContent = '🔗 Start Verification';
@@ -463,8 +479,7 @@
                     verifyBtn.textContent = '✓ I Completed All Tasks';
                     getKeyBtn.disabled = true;
                     getKeyBtn.textContent = '🎁 Generate Key';
-                    linkOpenedAt = 0;
-                    verificationStartedAt = 0;
+                    verificationCompleted = false;
                 }, 5000);
             }, 1500);
         });
@@ -520,16 +535,6 @@
 
         // Clean expired keys on page load
         cleanExpiredKeys();
-
-        // Prevent cheating by detecting if user closed Linkvertise too fast
-        window.addEventListener('focus', () => {
-            if (linkvertiseWindow && !linkvertiseWindow.closed && linkOpenedAt > 0) {
-                const elapsed = Date.now() - linkOpenedAt;
-                if (elapsed < 10000) { // If returned within 10 seconds
-                    showStatus('⚠️ Please complete ALL Linkvertise steps properly!', 'error');
-                }
-            }
-        });
     </script>
 </body>
 </html>
